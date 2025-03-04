@@ -4,7 +4,7 @@ const Item = require('../models/Item');
 const router = express.Router();
 
 router.post('/', async (req, res) => {
-    const items = req.body.items;
+    const items = req.body;
     try {
         const createdItems = await Item.insertMany(items);
         res.status(201).send({ message: 'Items created', items: createdItems });
@@ -30,6 +30,32 @@ router.get('/', async (req, res) => {
     const { category, type } = req.query;
     try {
         const query = {};
+        if (category) query.category = category;
+        if (type) query.type = type;
+        const items = await Item.find(query);
+        res.send(items);
+    } catch (err) {
+        res.status(500).send({ message: 'Server error' });
+    }
+});
+
+router.get('/canteen', async (req, res) => {
+    const { category, type } = req.query;
+    try {
+        const query = {type: "canteen"};
+        if (category) query.category = category;
+        if (type) query.type = type;
+        const items = await Item.find(query);
+        res.send(items);
+    } catch (err) {
+        res.status(500).send({ message: 'Server error' });
+    }
+});
+
+router.get('/stationery', async (req, res) => {
+    const { category, type } = req.query;
+    try {
+        const query = {type: "stationery"};
         if (category) query.category = category;
         if (type) query.type = type;
         const items = await Item.find(query);

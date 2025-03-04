@@ -6,7 +6,8 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const userRoutes = require('./routes/users');
-const canteenRoutes = require('./routes/canteen');
+const productRoutes = require('./routes/product');
+const cartRoutes = require('./routes/cart');
 
 const app = express();
 app.use(cors());
@@ -18,18 +19,8 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/canteen',
 });
 
 app.use('/users', userRoutes);
-app.use('/canteen', canteenRoutes);
-
-const authMiddleware = (req, res, next) => {
-    const token = req.header('Authorization');
-    if (!token) return res.status(401).send({ message: 'Access denied' });
-    try {
-        req.user = jwt.verify(token, process.env.JWT_SECRET);
-        next();
-    } catch (err) {
-        res.status(400).send({ message: 'Invalid token' });
-    }
-};
+app.use('/product', productRoutes);
+app.use('/cart', cartRoutes);
 
 app.post('/verify_token', (req, res) => {
     const { token } = req.body;
@@ -45,6 +36,5 @@ app.post('/verify_token', (req, res) => {
         res.status(400).send({ message: 'Invalid token' });
     }
 });
-
 
 module.exports = app;
