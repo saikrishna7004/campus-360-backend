@@ -42,7 +42,7 @@ router.get('/', async (req, res) => {
 router.get('/canteen', async (req, res) => {
     const { category, type } = req.query;
     try {
-        const query = {type: "canteen"};
+        const query = { type: "canteen" };
         if (category) query.category = category;
         if (type) query.type = type;
         const items = await Item.find(query);
@@ -55,7 +55,7 @@ router.get('/canteen', async (req, res) => {
 router.get('/stationery', async (req, res) => {
     const { category, type } = req.query;
     try {
-        const query = {type: "stationery"};
+        const query = { type: "stationery" };
         if (category) query.category = category;
         if (type) query.type = type;
         const items = await Item.find(query);
