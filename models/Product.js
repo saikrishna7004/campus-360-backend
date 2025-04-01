@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const itemSchema = new mongoose.Schema({
+const productSchema = new mongoose.Schema({
     name: {
         type: String,
         required: true
@@ -25,6 +25,10 @@ const itemSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
+    isAvailable: {
+        type: Boolean,
+        default: true
+    },
     type: {
         type: String,
         enum: ['canteen', 'bookstore', 'stationery'],
@@ -32,4 +36,4 @@ const itemSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-module.exports = mongoose.model('Item', itemSchema);
+module.exports = mongoose.model('Product', productSchema);

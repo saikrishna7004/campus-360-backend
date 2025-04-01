@@ -1,78 +1,124 @@
 const express = require('express');
-const Item = require('../models/Item');
-
+const Product = require('../models/Product');
+const authMiddleware = require('../middleware/auth');
 const router = express.Router();
 
-router.post('/', async (req, res) => {
-    const items = req.body;
+router.post('/', authMiddleware, async (req, res) => {
     try {
-        const createdItems = await Item.insertMany(items);
-        res.status(201).send({ message: 'Items created', items: createdItems });
+        if (req.user.role !== 'vendor' && req.user.role !== 'admin') {
+            return res.status(403).send({ message: 'Access denied' });
+        }
+        
+        const { name, price, description, category, imageUrl, type, inStock } = req.body;
+        
+        const product = new Product({
+            name,
+            price,
+            description,
+            category,
+            imageUrl,
+            type,
+            inStock
+        });
+        
+        await product.save();
+        res.status(201).send(product);
     } catch (err) {
-        console.log(err);
-        res.status(500).send({ message: 'Server error' });
+        console.error(err);
+        res.status(500).send({ message: 'Server error', error: err.message });
     }
 });
 
-router.put('/:id', async (req, res) => {
-    const { id } = req.params;
-    const { name, inStock, price, maxAllowedQty, image, desc, rating, category, type } = req.body;
+router.get('/:type', async (req, res) => {
     try {
-        const item = await Item.findByIdAndUpdate(id, { name, inStock, price, maxAllowedQty, image, desc, rating, category, type }, { new: true });
-        if (!item) return res.status(404).send({ message: 'Item not found' });
-        res.send({ message: 'Item updated', item });
+        const { type } = req.params;
+        console.log(type);
+        const products = await Product.find({ type }).sort({ category: 1 });
+        console.log(products);
+        res.send(products);
     } catch (err) {
-        res.status(500).send({ message: 'Server error' });
+        console.error(err);
+        res.status(500).send({ message: 'Server error', error: err.message });
     }
 });
 
-router.get('/', async (req, res) => {
-    const { category, type } = req.query;
+router.get('/id/:id', async (req, res) => {
     try {
-        const query = {};
-        if (category) query.category = category;
-        if (type) query.type = type;
-        const items = await Item.find(query);
-        res.send(items);
+        const product = await Product.findById(req.params.id);
+        if (!product) {
+            return res.status(404).send({ message: 'Product not found' });
+        }
+        res.send(product);
     } catch (err) {
-        res.status(500).send({ message: 'Server error' });
+        console.error(err);
+        res.status(500).send({ message: 'Server error', error: err.message });
     }
 });
 
-router.get('/canteen', async (req, res) => {
-    const { category, type } = req.query;
+router.put('/:id', authMiddleware, async (req, res) => {
     try {
-        const query = { type: "canteen" };
-        if (category) query.category = category;
-        if (type) query.type = type;
-        const items = await Item.find(query);
-        res.send(items);
+        if (req.user.role !== 'vendor' && req.user.role !== 'admin') {
+            return res.status(403).send({ message: 'Access denied' });
+        }
+        
+        const { name, price, description, category, imageUrl, inStock } = req.body;
+        
+        const product = await Product.findByIdAndUpdate(
+            req.params.id,
+            { name, price, description, category, imageUrl, inStock },
+            { new: true }
+        );
+        
+        if (!product) {
+            return res.status(404).send({ message: 'Product not found' });
+        }
+        
+        res.send(product);
     } catch (err) {
-        res.status(500).send({ message: 'Server error' });
+        console.error(err);
+        res.status(500).send({ message: 'Server error', error: err.message });
     }
 });
 
-router.get('/stationery', async (req, res) => {
-    const { category, type } = req.query;
+router.patch('/:id', authMiddleware, async (req, res) => {
     try {
-        const query = { type: "stationery" };
-        if (category) query.category = category;
-        if (type) query.type = type;
-        const items = await Item.find(query);
-        res.send(items);
+        if (req.user.role !== 'vendor' && req.user.role !== 'admin') {
+            return res.status(403).send({ message: 'Access denied' });
+        }
+        
+        const product = await Product.findByIdAndUpdate(
+            req.params.id,
+            { $set: req.body },
+            { new: true }
+        );
+        
+        if (!product) {
+            return res.status(404).send({ message: 'Product not found' });
+        }
+        
+        res.send(product);
     } catch (err) {
-        res.status(500).send({ message: 'Server error' });
+        console.error(err);
+        res.status(500).send({ message: 'Server error', error: err.message });
     }
 });
 
-router.delete('/:id', async (req, res) => {
-    const { id } = req.params;
+router.delete('/:id', authMiddleware, async (req, res) => {
     try {
-        const item = await Item.findByIdAndDelete(id);
-        if (!item) return res.status(404).send({ message: 'Item not found' });
-        res.send({ message: 'Item deleted' });
+        if (req.user.role !== 'vendor' && req.user.role !== 'admin') {
+            return res.status(403).send({ message: 'Access denied' });
+        }
+        
+        const product = await Product.findByIdAndDelete(req.params.id);
+        
+        if (!product) {
+            return res.status(404).send({ message: 'Product not found' });
+        }
+        
+        res.send({ message: 'Product deleted successfully' });
     } catch (err) {
-        res.status(500).send({ message: 'Server error' });
+        console.error(err);
+        res.status(500).send({ message: 'Server error', error: err.message });
     }
 });
 

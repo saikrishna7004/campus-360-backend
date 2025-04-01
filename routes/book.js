@@ -1,120 +1,98 @@
 const express = require('express');
-const Book = require('../models/Book');
-const BookTrack = require('../models/BookTrack');
-
+const Product = require('../models/Product');
+const authMiddleware = require('../middleware/auth');
 const router = express.Router();
+
+router.post('/', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'vendor' && req.user.role !== 'admin') {
+            return res.status(403).send({ message: 'Access denied' });
+        }
+        
+        const { name, price, description, category, imageUrl, inStock } = req.body;
+        
+        const book = new Product({
+            name,
+            price,
+            description,
+            category,
+            imageUrl,
+            inStock,
+            type: 'bookstore'
+        });
+        
+        await book.save();
+        res.status(201).send(book);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Server error', error: err.message });
+    }
+});
 
 router.get('/', async (req, res) => {
     try {
-        const books = await Book.find();
-        res.json(books);
+        const books = await Product.find({ type: 'bookstore' }).sort({ category: 1 });
+        res.send(books);
     } catch (err) {
-        res.status(500).json({ message: err.message });
+        console.error(err);
+        res.status(500).send({ message: 'Server error', error: err.message });
     }
 });
 
-router.post('/', async (req, res) => {
-    const { title, author, image, description, count } = req.body;
+router.get('/:id', async (req, res) => {
     try {
-        const book = new Book({ title, author, image, description, count });
-        await book.save();
-        res.status(201).json(book);
-    } catch (err) {
-        res.status(400).json({ message: err.message });
-    }
-});
-
-router.put('/borrow/:id', async (req, res) => {
-    const { id } = req.params;
-    try {
-        const book = await Book.findById(id);
-        if (!book) return res.status(404).json({ message: 'Book not found' });
-
-        if (book.count <= 0) return res.status(400).json({ message: 'Book not available' });
-
-        book.count -= 1;
-        book.available = book.count > 0;
-        await book.save();
-        console.log(book)
-        res.json(book);
-    } catch (err) {
-        res.status(500).json({ message: err.message });
-    }
-});
-
-router.post('/borrow', async (req, res) => {
-    const { email, bookId } = req.body;
-    try {
-        const userBooks = await BookTrack.find({ email, returnDate: null });
-        if (userBooks.length >= 2) {
-            return res.status(400).json({ message: 'User cannot borrow more than 2 books' });
-        }
-
-        const book = await Book.findById(bookId);
+        const book = await Product.findOne({ _id: req.params.id, type: 'bookstore' });
         if (!book) {
-            return res.status(404).json({ message: 'Book not found' });
+            return res.status(404).send({ message: 'Book not found' });
         }
-
-        if (book.count <= 0) {
-            return res.status(400).json({ message: 'Book not available' });
-        }
-
-        const bookTrack = new BookTrack({ email, bookId });
-        await bookTrack.save();
-
-        book.count -= 1;
-        await book.save();
-
-        res.status(201).json(bookTrack);
+        res.send(book);
     } catch (err) {
-        res.status(500).json({ message: err.message });
+        console.error(err);
+        res.status(500).send({ message: 'Server error', error: err.message });
     }
 });
 
-router.post('/return', async (req, res) => {
-    const { email, bookId } = req.body;
+router.put('/:id', authMiddleware, async (req, res) => {
     try {
-        const bookTrack = await BookTrack.findOne({ email, bookId, returnDate: null });
-        if (!bookTrack) {
-            return res.status(404).json({ message: 'Borrow record not found' });
+        if (req.user.role !== 'vendor' && req.user.role !== 'admin') {
+            return res.status(403).send({ message: 'Access denied' });
         }
-
-        bookTrack.returnDate = new Date();
-        await bookTrack.save();
-
-        const book = await Book.findById(bookId);
-        book.count += 1;
-        await book.save();
-
-        res.json(bookTrack);
-    } catch (err) {
-        res.status(500).json({ message: err.message });
-    }
-});
-
-router.get('/borrowed', async (req, res) => {
-    try {
-        const borrowedBooks = await BookTrack.find({ returnDate: null }).populate('bookId');
-        res.json(borrowedBooks);
-    } catch (err) {
-        res.status(500).json({ message: err.message });
-    }
-});
-
-router.delete('/:id', async (req, res) => {
-    const { id } = req.params;
-    try {
-        const book = await Book.findById(id);
+        
+        const { name, price, description, category, imageUrl, inStock } = req.body;
+        
+        const book = await Product.findOneAndUpdate(
+            { _id: req.params.id, type: 'bookstore' },
+            { name, price, description, category, imageUrl, inStock },
+            { new: true }
+        );
+        
         if (!book) {
-            return res.status(404).json({ message: 'Book not found' });
+            return res.status(404).send({ message: 'Book not found' });
         }
-
-        await BookTrack.deleteMany({ bookId: id });
-        await book.remove();
-
-        res.json({ message: 'Book deleted successfully' });
+        
+        res.send(book);
     } catch (err) {
-        res.status(500).json({ message: err.message });
+        console.error(err);
+        res.status(500).send({ message: 'Server error', error: err.message });
+    }
+});
+
+router.delete('/:id', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'vendor' && req.user.role !== 'admin') {
+            return res.status(403).send({ message: 'Access denied' });
+        }
+        
+        const book = await Product.findOneAndDelete({ _id: req.params.id, type: 'bookstore' });
+        
+        if (!book) {
+            return res.status(404).send({ message: 'Book not found' });
+        }
+        
+        res.send({ message: 'Book deleted successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Server error', error: err.message });
     }
 });
 
