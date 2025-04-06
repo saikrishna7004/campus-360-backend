@@ -1,8 +1,9 @@
 const mongoose = require('mongoose');
 
-const bookTrackSchema = new mongoose.Schema({
-    email: {
-        type: String,
+const BookTrackSchema = new mongoose.Schema({
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
         required: true
     },
     bookId: {
@@ -12,11 +13,12 @@ const bookTrackSchema = new mongoose.Schema({
     },
     borrowedDate: {
         type: Date,
-        default: Date.now
+        required: true
     },
     returnDate: {
-        type: Date
+        type: Date,
+        default: null
     }
-});
+}, { timestamps: true });
 
-module.exports = mongoose.model('BookTrack', bookTrackSchema);
+module.exports = mongoose.model('BookTrack', BookTrackSchema);

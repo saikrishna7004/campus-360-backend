@@ -102,9 +102,9 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 router.post('/borrow/:id', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
-        const userEmail = req.user.email;
+        const userId = req.user.id;
 
-        const activeBorrows = await BookTrack.find({ email: userEmail, returnDate: null });
+        const activeBorrows = await BookTrack.find({ userId, returnDate: null });
         if (activeBorrows.length >= 2) {
             return res.status(400).send({ message: 'You can only hold 2 books at a time.' });
         }
@@ -122,7 +122,7 @@ router.post('/borrow/:id', authMiddleware, async (req, res) => {
         await book.save();
 
         const bookTrack = new BookTrack({
-            email: userEmail,
+            userId,
             bookId: book._id,
             borrowedDate: new Date()
         });
@@ -130,7 +130,6 @@ router.post('/borrow/:id', authMiddleware, async (req, res) => {
 
         res.status(200).send(book);
     } catch (err) {
-        console.error(err);
         res.status(500).send({ message: 'Server error', error: err.message });
     }
 });
