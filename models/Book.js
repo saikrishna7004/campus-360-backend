@@ -20,7 +20,13 @@ const bookSchema = new mongoose.Schema({
         type: Number,
         required: true
     },
-});
+    pdfUrl: {
+        type: String
+    },
+    tags: [{
+        type: String
+    }],
+}, { timestamps: true });
 
 const Book = mongoose.model('Book', bookSchema);
 
