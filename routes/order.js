@@ -79,13 +79,12 @@ router.get('/history', authMiddleware, async (req, res) => {
 
         const orders = await Order.find({ user: req.user.id })
             .sort({ createdAt: -1 })
-            .select('-__v') // Exclude version field
+            .select('-__v')
             .lean();
 
-        // Ensure vendor field is present in response
         const processedOrders = orders.map(order => ({
             ...order,
-            vendor: order.vendor || 'default' // Provide default if undefined
+            vendor: order.vendor || 'default'
         }));
 
         res.json(processedOrders);
@@ -102,19 +101,16 @@ router.get('/admin', authMiddleware, async (req, res) => {
     try {
         const { lastFetchTime, status } = req.query;
         
-        // Check if user is admin or vendor
         if (req.user.role !== 'admin' && req.user.role !== 'canteen') {
             return res.status(403).send({ message: 'Access denied' });
         }
         
         const query = {};
         
-        // Add vendor filtering for canteen users
         if (req.user.role === 'canteen') {
             query.vendor = req.user.type === 'food' ? 'canteen' : 'stationery';
         }
         
-        // Add status filtering
         if (status) {
             query.status = status;
         } else {
@@ -197,7 +193,6 @@ router.get('/:id', authMiddleware, async (req, res) => {
             return res.status(403).send({ message: 'Access denied' });
         }
         
-        // Ensure vendor field is present
         const processedOrder = {
             ...order,
             vendor: order.vendor || 'default'
