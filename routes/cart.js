@@ -89,7 +89,7 @@ router.post('/sync', authMiddleware, async (req, res) => {
         await cart.save();
         res.status(200).send({ message: 'Cart synced successfully', cart });
     } catch (err) {
-        console.error('Error syncing cart:', err);
+        // console.error('Error syncing cart:', err);
         res.status(500).send({ message: 'Server error' });
     }
 });
