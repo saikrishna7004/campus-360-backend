@@ -134,4 +134,18 @@ router.post('/borrow/:id', authMiddleware, async (req, res) => {
     }
 });
 
+router.get('/borrowed', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const borrowedBooks = await BookTrack.find({ userId, returnDate: null }).populate('bookId', 'title author image count');
+        res.status(200).send(borrowedBooks.map(track => ({
+            ...track.bookId.toObject(),
+            borrowedDate: track.borrowedDate,
+            deadline: new Date(track.borrowedDate.getTime() + 60 * 24 * 60 * 60 * 1000)
+        })));
+    } catch (err) {
+        res.status(500).send({ message: 'Server error', error: err.message });
+    }
+});
+
 module.exports = router;
