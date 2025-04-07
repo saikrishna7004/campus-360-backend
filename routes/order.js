@@ -77,7 +77,7 @@ router.get('/history', authMiddleware, async (req, res) => {
             return res.status(401).json({ message: 'Authentication required' });
         }
 
-        const orders = await Order.find({ user: req.user.id, status: { $in: ['completed', 'cancelled'] } })
+        const orders = await Order.find({ user: req.user.id })
             .sort({ createdAt: -1 })
             .select('-__v')
             .lean();
