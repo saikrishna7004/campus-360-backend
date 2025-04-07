@@ -48,7 +48,9 @@ app.post('/verify_token', (req, res) => {
         res.status(400).send({ message: 'Invalid token' });
     }
 });
+
 app.get('/', (req, res) => {
     res.send('Hello World');
 });
+
 module.exports = app;
