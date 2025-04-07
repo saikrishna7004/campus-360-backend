@@ -35,10 +35,11 @@ router.post('/', authMiddleware, async (req, res) => {
 router.get('/borrowed', authMiddleware, async (req, res) => {
     try {
         const userId = req.user.id;
-        const borrowedBooks = await BookTrack.find({ userId, returnDate: null }).populate('bookId', 'title author image count');
+        const borrowedBooks = await BookTrack.find({ userId, returnDate: null }).populate('bookId');
         res.status(200).send(borrowedBooks.map(track => ({
             ...track.bookId.toObject(),
             borrowedDate: track.borrowedDate,
+            returnDate: track.returnDate,
             deadline: new Date(track.borrowedDate.getTime() + 60 * 24 * 60 * 60 * 1000)
         })));
     } catch (err) {
@@ -123,6 +124,11 @@ router.post('/borrow/:id', authMiddleware, async (req, res) => {
             return res.status(400).send({ message: 'You can only hold 2 books at a time.' });
         }
 
+        const existingBorrow = activeBorrows.find(borrow => borrow.bookId.toString() === id);
+        if (existingBorrow) {
+            return res.status(400).send({ message: 'You have already borrowed this book.' });
+        }
+
         const book = await Book.findById(id);
         if (!book) {
             return res.status(404).send({ message: 'Book not found' });
@@ -142,7 +148,7 @@ router.post('/borrow/:id', authMiddleware, async (req, res) => {
         });
         await bookTrack.save();
 
-        res.status(200).send(book);
+        res.status(200).send({ message: 'Book borrowed successfully', book });
     } catch (err) {
         res.status(500).send({ message: 'Server error', error: err.message });
     }
