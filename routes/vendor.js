@@ -97,6 +97,82 @@ router.get('/dashboard', authMiddleware, async (req, res) => {
     }
 });
 
+router.get('/history', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'vendor' && req.user.role !== 'admin') {
+            return res.status(403).json({ message: 'Access denied' });
+        }
+
+        const { startDate, endDate, status } = req.query;
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(50, parseInt(req.query.limit) || 10);
+        const skip = (page - 1) * limit;
+
+        const query = {};
+
+        if (startDate && endDate) {
+            query.createdAt = {
+                $gte: new Date(startDate),
+                $lte: new Date(endDate)
+            };
+        }
+
+        if (status) {
+            query.status = status;
+        }
+
+        if (req.user.role === 'vendor') {
+            const user = await User.findById(req.user.id);
+            if (!user) {
+                return res.status(404).json({ message: 'Vendor not found' });
+            }
+            query.vendor = user.vendorType;
+        }
+
+        const [orders, totalOrders, summary] = await Promise.all([
+            Order.find(query)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .populate('user', 'name email')
+                .populate('items.productId', 'name price')
+                .lean(),
+            Order.countDocuments(query),
+            Order.aggregate([
+                { $match: query },
+                {
+                    $group: {
+                        _id: null,
+                        totalOrders: { $sum: 1 },
+                        totalRevenue: { $sum: '$totalAmount' },
+                        averageOrderValue: { $avg: '$totalAmount' }
+                    }
+                }
+            ])
+        ]);
+
+        res.json({
+            orders,
+            summary: summary[0] || {
+                totalOrders: 0,
+                totalRevenue: 0,
+                averageOrderValue: 0
+            },
+            hasMore: skip + orders.length < totalOrders,
+            page,
+            totalPages: Math.ceil(totalOrders / limit),
+            totalOrders
+        });
+
+    } catch (err) {
+        console.error('Order history error:', err);
+        res.status(500).json({ 
+            message: 'Failed to fetch order history', 
+            error: err.message 
+        });
+    }
+});
+
 router.get('/orders', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'vendor') {
