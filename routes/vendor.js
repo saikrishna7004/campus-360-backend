@@ -31,56 +31,55 @@ router.get('/dashboard', authMiddleware, async (req, res) => {
             return res.status(403).send({ message: 'Access denied' });
         }
 
-        let productCount, totalOrders, totalSales, topProducts, totalToday, totalWeek, totalMonth, uniqueItemsSold;
+        const { role, id } = req.user;
+        const isVendor = role === 'vendor';
+        const vendorType = isVendor ? (await User.findById(id)).vendorType : null;
 
-        if (req.user.role === 'vendor') {
-            const user = await User.findById(req.user.id);
+        const productCount = isVendor
+            ? await Product.countDocuments({ vendorType })
+            : await Product.countDocuments();
+        const totalOrders = isVendor
+            ? await Order.countDocuments({ vendor: vendorType })
+            : await Order.countDocuments();
 
-            productCount = await Product.countDocuments({ vendorType: user.vendorType });
-            totalOrders = await Order.countDocuments({ vendor: user.vendorType });
+        const sales = await Order.aggregate([
+            {
+                $match: {
+                    status: { $in: ['completed', 'ready', 'preparing'] },
+                    ...(isVendor ? { vendor: vendorType } : {}),
+                },
+            },
+            {
+                $group: { _id: null, total: { $sum: '$totalAmount' } },
+            },
+        ]);
+        const totalSales = sales.length > 0 ? sales[0].total : 0;
 
-            const sales = await Order.aggregate([
-                { $match: { vendor: user.vendorType, status: { $in: ['completed', 'ready', 'preparing'] } } },
-                { $group: { _id: null, total: { $sum: "$totalAmount" } } }
-            ]);
-            totalSales = sales.length > 0 ? sales[0].total : 0;
+        const topProducts = await Product.aggregate([
+            { $match: { vendorType: isVendor ? vendorType : { $exists: true } } },
+            {
+                $lookup: {
+                    from: 'orders',
+                    localField: '_id',
+                    foreignField: 'items.productId',
+                    as: 'orderDetails',
+                },
+            },
+            { $unwind: { path: '$orderDetails', preserveNullAndEmptyArrays: true } },
+            {
+                $group: {
+                    _id: '$name',
+                    sales: { $sum: '$orderDetails.totalAmount' },
+                },
+            },
+            { $sort: { sales: -1 } },
+            { $limit: 5 },
+        ]);
 
-            topProducts = await Product.aggregate([
-                { $match: { vendorType: user.vendorType } },
-                { $lookup: { from: 'orders', localField: '_id', foreignField: 'items.product', as: 'orderDetails' } },
-                { $unwind: '$orderDetails' },
-                { $group: { _id: '$name', sales: { $sum: '$orderDetails.totalAmount' } } },
-                { $sort: { sales: -1 } },
-                { $limit: 5 }
-            ]);
-
-            totalToday = await getTotalSalesForPeriod(user.vendorType, 'today');
-            totalWeek = await getTotalSalesForPeriod(user.vendorType, 'week');
-            totalMonth = await getTotalSalesForPeriod(user.vendorType, 'month');
-            uniqueItemsSold = await getUniqueItemsSold(user.vendorType);
-        } else if (req.user.role === 'admin') {
-            productCount = await Product.countDocuments();
-            totalOrders = await Order.countDocuments();
-
-            const sales = await Order.aggregate([
-                { $match: { status: { $in: ['completed', 'ready', 'preparing'] } } },
-                { $group: { _id: null, total: { $sum: "$totalAmount" } } }
-            ]);
-            totalSales = sales.length > 0 ? sales[0].total : 0;
-
-            topProducts = await Product.aggregate([
-                { $lookup: { from: 'orders', localField: '_id', foreignField: 'items.product', as: 'orderDetails' } },
-                { $unwind: '$orderDetails' },
-                { $group: { _id: '$name', sales: { $sum: '$orderDetails.totalAmount' } } },
-                { $sort: { sales: -1 } },
-                { $limit: 5 }
-            ]);
-
-            totalToday = await getTotalSalesForPeriod(null, 'today');
-            totalWeek = await getTotalSalesForPeriod(null, 'week');
-            totalMonth = await getTotalSalesForPeriod(null, 'month');
-            uniqueItemsSold = await getUniqueItemsSold();
-        }
+        const totalToday = await getTotalSalesForPeriod(vendorType, 'today');
+        const totalWeek = await getTotalSalesForPeriod(vendorType, 'week');
+        const totalMonth = await getTotalSalesForPeriod(vendorType, 'month');
+        const uniqueItemsSold = await getUniqueItemsSold(vendorType);
 
         res.send({
             productCount,
@@ -90,7 +89,7 @@ router.get('/dashboard', authMiddleware, async (req, res) => {
             totalToday,
             totalWeek,
             totalMonth,
-            uniqueItemsSold
+            uniqueItemsSold,
         });
     } catch (err) {
         console.error(err);
@@ -132,41 +131,59 @@ router.get('/orders', authMiddleware, async (req, res) => {
 });
 
 const getTotalSalesForPeriod = async (vendorType = null, period = 'today') => {
-    const match = { status: { $in: ['completed', 'ready', 'preparing'] } };
-    if (vendorType) match.vendor = vendorType;
+    const match = {
+        status: { $in: ['completed', 'ready', 'preparing'] },
+        ...(vendorType && { vendor: vendorType }),
+    };
 
     const date = new Date();
     let startOfPeriod;
 
-    if (period === 'today') {
-        startOfPeriod = new Date(date.setHours(0, 0, 0, 0));
-    } else if (period === 'week') {
-        startOfPeriod = new Date(date.setDate(date.getDate() - date.getDay()));
-        startOfPeriod.setHours(0, 0, 0, 0);
-    } else if (period === 'month') {
-        startOfPeriod = new Date(date.setDate(1));
-        startOfPeriod.setHours(0, 0, 0, 0);
+    switch (period) {
+        case 'week':
+            startOfPeriod = new Date(date.setDate(date.getDate() - date.getDay()));
+            break;
+        case 'month':
+            startOfPeriod = new Date(date.setDate(1));
+            break;
+        case 'today':
+        default:
+            startOfPeriod = new Date(date.setHours(0, 0, 0, 0));
+            break;
     }
 
     match.createdAt = { $gte: startOfPeriod };
 
     const sales = await Order.aggregate([
         { $match: match },
-        { $group: { _id: null, total: { $sum: "$totalAmount" } } }
+        {
+            $group: { _id: null, total: { $sum: '$totalAmount' } },
+        },
     ]);
 
     return sales.length > 0 ? sales[0].total : 0;
 };
 
 const getUniqueItemsSold = async (vendorType = null) => {
-    const match = {};
-    if (vendorType) match.vendorType = vendorType;
+    const match = vendorType ? { vendorType } : {};
 
     const products = await Product.aggregate([
         { $match: match },
-        { $lookup: { from: 'orders', localField: '_id', foreignField: 'items.product', as: 'orderDetails' } },
+        {
+            $lookup: {
+                from: 'orders',
+                localField: '_id',
+                foreignField: 'items.productId',
+                as: 'orderDetails',
+            },
+        },
         { $unwind: '$orderDetails' },
-        { $group: { _id: '$name', sold: { $sum: 1 } } }
+        {
+            $group: {
+                _id: '$name',
+                sold: { $sum: 1 },
+            },
+        },
     ]);
 
     return products.length;
