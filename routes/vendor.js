@@ -55,25 +55,62 @@ router.get('/dashboard', authMiddleware, async (req, res) => {
         ]);
         const totalSales = sales.length > 0 ? sales[0].total : 0;
 
-        const topProducts = await Product.aggregate([
-            { $match: { vendorType: isVendor ? vendorType : { $exists: true } } },
-            {
-                $lookup: {
-                    from: 'orders',
-                    localField: '_id',
-                    foreignField: 'items.productId',
-                    as: 'orderDetails',
+        const [topProducts, monthlySales] = await Promise.all([
+            Order.aggregate([
+                {
+                    $match: {
+                        status: { $in: ['completed', 'ready', 'preparing'] },
+                        ...(isVendor ? { vendor: vendorType } : {})
+                    }
                 },
-            },
-            { $unwind: { path: '$orderDetails', preserveNullAndEmptyArrays: true } },
-            {
-                $group: {
-                    _id: '$name',
-                    sales: { $sum: '$orderDetails.totalAmount' },
+                { $unwind: '$items' },
+                {
+                    $group: {
+                        _id: '$items.productId',
+                        totalSold: { $sum: '$items.quantity' },
+                        totalAmount: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
+                    }
                 },
-            },
-            { $sort: { sales: -1 } },
-            { $limit: 5 },
+                {
+                    $lookup: {
+                        from: 'products',
+                        localField: '_id',
+                        foreignField: '_id',
+                        as: 'productDetails'
+                    }
+                },
+                { $unwind: '$productDetails' },
+                {
+                    $project: {
+                        _id: 1,
+                        name: '$productDetails.name',
+                        totalSold: 1,
+                        totalAmount: 1,
+                        price: '$productDetails.price'
+                    }
+                },
+                { $sort: { totalSold: -1 } },
+                { $limit: 5 }
+            ]),
+            Order.aggregate([
+                {
+                    $match: {
+                        status: { $in: ['completed', 'ready', 'preparing'] },
+                        ...(isVendor ? { vendor: vendorType } : {})
+                    }
+                },
+                {
+                    $group: {
+                        _id: { 
+                            month: { $month: '$createdAt' },
+                            year: { $year: '$createdAt' }
+                        },
+                        total: { $sum: '$totalAmount' }
+                    }
+                },
+                { $sort: { '_id.year': 1, '_id.month': 1 } },
+                { $limit: 6 }
+            ])
         ]);
 
         const totalToday = await getTotalSalesForPeriod(vendorType, 'today');
@@ -85,7 +122,16 @@ router.get('/dashboard', authMiddleware, async (req, res) => {
             productCount,
             totalOrders,
             totalSales,
-            topProducts,
+            topProducts: topProducts.map(product => ({
+                _id: product.name,
+                sales: product.totalAmount,
+                quantity: product.totalSold,
+                price: product.price
+            })),
+            monthlySales: monthlySales.map(m => ({
+                label: new Date(m._id.year, m._id.month - 1).toLocaleString('default', { month: 'short' }),
+                value: m.total
+            })),
             totalToday,
             totalWeek,
             totalMonth,
