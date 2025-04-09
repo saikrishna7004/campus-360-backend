@@ -25,120 +25,297 @@ router.post('/status', authMiddleware, async (req, res) => {
     }
 });
 
-router.get('/dashboard', authMiddleware, async (req, res) => {
+// router.get('/dashboard', authMiddleware, async (req, res) => {
+router.get('/dashboard', async (req, res) => {
     try {
-        if (req.user.role !== 'vendor' && req.user.role !== 'admin') {
-            return res.status(403).send({ message: 'Access denied' });
+        // if (req.user.role !== 'vendor' && req.user.role !== 'admin') {
+        //     return res.status(403).send({ message: 'Access denied' });
+        // }
+
+        const { period = 'daily', timeRef } = req.query;
+        // const { role, id } = req.user;
+        // const isVendor = role === 'vendor';
+        // const user = await User.findById(id);
+        // const vendorType = isVendor ? user.vendorType : null;
+        const isVendor = false;
+        const vendorType = null;
+
+        const now = new Date(timeRef || new Date());
+        let startDate = new Date(now);
+        let endDate = new Date(now);
+        let periodLabel;
+
+        switch (period) {
+            case 'daily':
+                startDate.setHours(startDate.getHours() - 24);
+                periodLabel = 'Last 24 Hours';
+                break;
+            case 'weekly':
+                startDate.setDate(startDate.getDate() - 6);
+                periodLabel = 'Last 7 Days';
+                break;
+            case 'monthly':
+                startDate.setDate(startDate.getDate() - 29);
+                periodLabel = 'Last 30 Days';
+                break;
         }
 
-        const { role, id } = req.user;
-        const isVendor = role === 'vendor';
-        const vendorType = isVendor ? (await User.findById(id)).vendorType : null;
+        const baseQuery = {
+            createdAt: { $gte: startDate, $lte: endDate },
+            ...(isVendor ? { vendor: vendorType } : {})
+        };
 
-        const productCount = isVendor
-            ? await Product.countDocuments({ vendorType })
-            : await Product.countDocuments();
-        const totalOrders = isVendor
-            ? await Order.countDocuments({ vendor: vendorType })
-            : await Order.countDocuments();
+        // console.log('Base Query:', baseQuery);
+        // console.log('Start Date:', startDate);
+        // console.log('End Date:', endDate);
+        // console.log('Period:', period);
 
-        const sales = await Order.aggregate([
-            {
-                $match: {
-                    status: { $in: ['completed', 'ready', 'preparing'] },
-                    ...(isVendor ? { vendor: vendorType } : {}),
-                },
-            },
-            {
-                $group: { _id: null, total: { $sum: '$totalAmount' } },
-            },
-        ]);
-        const totalSales = sales.length > 0 ? sales[0].total : 0;
-
-        const [topProducts, monthlySales] = await Promise.all([
+        const [data, previousPeriod] = await Promise.all([
             Order.aggregate([
+                { $match: baseQuery },
                 {
-                    $match: {
-                        status: { $in: ['completed', 'ready', 'preparing'] },
-                        ...(isVendor ? { vendor: vendorType } : {})
+                    $facet: {
+                        sales: [
+                            {
+                                $project: {
+                                    createdAt: 1,
+                                    totalAmount: 1,
+                                    items: 1
+                                }
+                            },
+                            {
+                                $group: {
+                                    _id: {
+                                        $switch: {
+                                            branches: [
+                                                {
+                                                    case: { $eq: [period, 'daily'] },
+                                                    then: {
+                                                        $dateToString: {
+                                                            format: "%Y-%m-%d %H",
+                                                            date: {
+                                                                $subtract: [
+                                                                    { $toDate: "$createdAt" },
+                                                                    { $mod: [{ $toLong: "$createdAt" }, 4 * 60 * 60 * 1000] }
+                                                                ]
+                                                            },
+                                                            timezone: "UTC"
+                                                        }
+                                                    }
+                                                },
+                                                {
+                                                    case: { $eq: [period, 'weekly'] },
+                                                    then: {
+                                                        $let: {
+                                                            vars: {
+                                                                dayOfWeek: { $dayOfWeek: "$createdAt" }
+                                                            },
+                                                            in: {
+                                                                $arrayElemAt: [
+                                                                    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+                                                                    { $subtract: ["$$dayOfWeek", 1] }
+                                                                ]
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                {
+                                                    case: { $eq: [period, 'monthly'] },
+                                                    then: {
+                                                        $concat: [
+                                                            { $substr: [{ $toString: { $isoWeek: "$createdAt" } }, 0, 1] },
+                                                            " Week"
+                                                        ]
+                                                    }
+                                                }
+                                            ],
+                                            default: { $dayOfMonth: "$createdAt" }
+                                        }
+                                    },
+                                    totalSales: { $sum: "$totalAmount" },
+                                    orderCount: { $sum: 1 }
+                                }
+                            },
+                            { $sort: { "_id": 1 } }
+                        ],
+                        summary: [
+                            {
+                                $group: {
+                                    _id: null,
+                                    totalSales: { $sum: "$totalAmount" },
+                                    avgOrderValue: { $avg: "$totalAmount" },
+                                    completedOrders: {
+                                        $sum: {
+                                            $cond: [{ $eq: ["$status", "completed"] }, 1, 0]
+                                        }
+                                    },
+                                    totalOrders: { $sum: 1 },
+                                    allOrderValues: { $push: "$totalAmount" }
+                                }
+                            },
+                            {
+                                $addFields: {
+                                    medianOrderValue: {
+                                        $let: {
+                                            vars: {
+                                                sortedValues: {
+                                                    $sortArray: {
+                                                        input: "$allOrderValues",
+                                                        sortBy: 1
+                                                    }
+                                                },
+                                                mid: {
+                                                    $trunc: {
+                                                        $divide: [{ $size: "$allOrderValues" }, 2]
+                                                    }
+                                                }
+                                            },
+                                            in: {
+                                                $cond: {
+                                                    if: {
+                                                        $eq: [
+                                                            { $mod: [{ $size: "$allOrderValues" }, 2] },
+                                                            0
+                                                        ]
+                                                    },
+                                                    then: {
+                                                        $avg: [
+                                                            { $arrayElemAt: ["$$sortedValues", "$$mid"] },
+                                                            { $arrayElemAt: ["$$sortedValues", { $subtract: ["$$mid", 1] }] }
+                                                        ]
+                                                    },
+                                                    else: {
+                                                        $arrayElemAt: ["$$sortedValues", "$$mid"]
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                $project: {
+                                    _id: 0,
+                                    totalSales: 1,
+                                    avgOrderValue: 1,
+                                    totalOrders: 1,
+                                    medianOrderValue: 1
+                                }
+                            }
+                        ],
+                        topProducts: [
+                            { $unwind: "$items" },
+                            {
+                                $group: {
+                                    _id: "$items.productId",
+                                    name: { $first: "$items.name" },
+                                    quantity: { $sum: "$items.quantity" },
+                                    sales: { $sum: { $multiply: ["$items.price", "$items.quantity"] } }
+                                }
+                            },
+                            { $sort: { quantity: -1 } },
+                            { $limit: 5 },
+                            {
+                                $project: {
+                                    name: 1,
+                                    quantity: 1,
+                                    sales: 1
+                                }
+                            }
+                        ],
+                        statusDistribution: [
+                            {
+                                $group: {
+                                    _id: "$status",
+                                    count: { $sum: 1 }
+                                }
+                            }
+                        ]
                     }
-                },
-                { $unwind: '$items' },
-                {
-                    $group: {
-                        _id: '$items.productId',
-                        totalSold: { $sum: '$items.quantity' },
-                        totalAmount: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
-                    }
-                },
-                {
-                    $lookup: {
-                        from: 'products',
-                        localField: '_id',
-                        foreignField: '_id',
-                        as: 'productDetails'
-                    }
-                },
-                { $unwind: '$productDetails' },
-                {
-                    $project: {
-                        _id: 1,
-                        name: '$productDetails.name',
-                        totalSold: 1,
-                        totalAmount: 1,
-                        price: '$productDetails.price'
-                    }
-                },
-                { $sort: { totalSold: -1 } },
-                { $limit: 5 }
+                }
             ]),
             Order.aggregate([
                 {
                     $match: {
-                        status: { $in: ['completed', 'ready', 'preparing'] },
-                        ...(isVendor ? { vendor: vendorType } : {})
+                        ...baseQuery,
+                        createdAt: {
+                            $gte: new Date(startDate.getTime() - (endDate.getTime() - startDate.getTime())),
+                            $lt: startDate
+                        }
                     }
                 },
                 {
                     $group: {
-                        _id: { 
-                            month: { $month: '$createdAt' },
-                            year: { $year: '$createdAt' }
-                        },
-                        total: { $sum: '$totalAmount' }
+                        _id: null,
+                        totalSales: { $sum: '$totalAmount' }
                     }
-                },
-                { $sort: { '_id.year': 1, '_id.month': 1 } },
-                { $limit: 6 }
+                }
             ])
         ]);
 
-        const totalToday = await getTotalSalesForPeriod(vendorType, 'today');
-        const totalWeek = await getTotalSalesForPeriod(vendorType, 'week');
-        const totalMonth = await getTotalSalesForPeriod(vendorType, 'month');
-        const uniqueItemsSold = await getUniqueItemsSold(vendorType);
+        // console.log('Data:', JSON.stringify(data, null, 2));
+        // console.log('Previous Period:', previousPeriod);
+        // console.log('medianOrderValue:', data[0]?.summary[0]?.medianOrderValue);
+        console.log('Sales Data:', data[0]?.sales);
 
-        res.send({
-            productCount,
-            totalOrders,
-            totalSales,
-            topProducts: topProducts.map(product => ({
-                _id: product.name,
-                sales: product.totalAmount,
-                quantity: product.totalSold,
-                price: product.price
-            })),
-            monthlySales: monthlySales.map(m => ({
-                label: new Date(m._id.year, m._id.month - 1).toLocaleString('default', { month: 'short' }),
-                value: m.total
-            })),
-            totalToday,
-            totalWeek,
-            totalMonth,
-            uniqueItemsSold,
+        if (!data || !data[0] || !data[0].sales || data[0].sales.length === 0) {
+            return res.status(404).send({ message: 'No sales data found for the selected period' });
+        }
+
+        const currentData = data[0];
+        const salesData = currentData.sales || [];
+
+        if (salesData.length === 0) {
+            return res.status(404).send({ message: 'No sales data found for the selected period' });
+        }
+
+        let labels = [];
+        let values = [];
+
+        if (period === 'daily') {
+            salesData.forEach(({ _id, totalSales }) => {
+                labels.push(`${_id}:00`);
+                values.push(totalSales);
+            });
+        } else if (period === 'weekly') {
+            salesData.forEach(({ _id, totalSales }) => {
+                labels.push(_id);
+                values.push(totalSales);
+            });
+        } else if (period === 'monthly') {
+            salesData.forEach(({ _id, totalSales }) => {
+                labels.push(`Week ${_id}`);
+                values.push(totalSales);
+            });
+        }        
+
+        const statusCounts = currentData.statusDistribution.reduce((acc, { _id, count }) => {
+            acc[_id] = count;
+            return acc;
+        }, {});
+
+        const previousSales = previousPeriod[0]?.totalSales || 0;
+        const growth = previousSales ? ((currentData.summary[0]?.totalSales - previousSales) / previousSales) * 100 : 0;
+
+        // console.log('Top Products:', currentData.topProducts);
+
+        res.json({
+            totalSales: currentData.summary[0]?.totalSales || 0,
+            avgOrderValue: currentData.summary[0]?.avgOrderValue || 0,
+            medianOrderValue: currentData.summary[0]?.medianOrderValue || 0,
+            totalOrders: currentData.summary[0]?.totalOrders || 0,
+            todayOrders: statusCounts?.preparing || 0,
+            completedOrders: statusCounts?.completed || 0,
+            cancelledOrders: statusCounts?.cancelled || 0,
+            periodLabel,
+            chartData: { labels, values },
+            topProducts: currentData.topProducts,
+            busyHours: currentData.hourlyStats,
+            growth: parseFloat(growth.toFixed(1))
         });
+
     } catch (err) {
-        console.error(err);
+        console.error('Dashboard Error:', err);
         res.status(500).send({ message: 'Server error', error: err.message });
     }
 });
@@ -212,9 +389,9 @@ router.get('/history', authMiddleware, async (req, res) => {
 
     } catch (err) {
         console.error('Order history error:', err);
-        res.status(500).json({ 
-            message: 'Failed to fetch order history', 
-            error: err.message 
+        res.status(500).json({
+            message: 'Failed to fetch order history',
+            error: err.message
         });
     }
 });
@@ -251,64 +428,5 @@ router.get('/orders', authMiddleware, async (req, res) => {
         res.status(500).send({ message: 'Server error', error: err.message });
     }
 });
-
-const getTotalSalesForPeriod = async (vendorType = null, period = 'today') => {
-    const match = {
-        status: { $in: ['completed', 'ready', 'preparing'] },
-        ...(vendorType && { vendor: vendorType }),
-    };
-
-    const date = new Date();
-    let startOfPeriod;
-
-    switch (period) {
-        case 'week':
-            startOfPeriod = new Date(date.setDate(date.getDate() - date.getDay()));
-            break;
-        case 'month':
-            startOfPeriod = new Date(date.setDate(1));
-            break;
-        case 'today':
-        default:
-            startOfPeriod = new Date(date.setHours(0, 0, 0, 0));
-            break;
-    }
-
-    match.createdAt = { $gte: startOfPeriod };
-
-    const sales = await Order.aggregate([
-        { $match: match },
-        {
-            $group: { _id: null, total: { $sum: '$totalAmount' } },
-        },
-    ]);
-
-    return sales.length > 0 ? sales[0].total : 0;
-};
-
-const getUniqueItemsSold = async (vendorType = null) => {
-    const match = vendorType ? { vendorType } : {};
-
-    const products = await Product.aggregate([
-        { $match: match },
-        {
-            $lookup: {
-                from: 'orders',
-                localField: '_id',
-                foreignField: 'items.productId',
-                as: 'orderDetails',
-            },
-        },
-        { $unwind: '$orderDetails' },
-        {
-            $group: {
-                _id: '$name',
-                sold: { $sum: 1 },
-            },
-        },
-    ]);
-
-    return products.length;
-};
 
 module.exports = router;
