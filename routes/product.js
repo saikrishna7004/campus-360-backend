@@ -1,6 +1,7 @@
 const express = require('express');
 const Product = require('../models/Product');
 const authMiddleware = require('../middleware/auth');
+const Vendor = require('../models/Vendor');
 const router = express.Router();
 
 router.post('/', authMiddleware, async (req, res) => {
@@ -32,9 +33,24 @@ router.post('/', authMiddleware, async (req, res) => {
 router.get('/:type', async (req, res) => {
     try {
         const { type } = req.params;
-        console.log(type);
+        if (!['canteen', 'stationery'].includes(type)) {
+            return res.status(400).send({ message: 'Invalid product type' });
+        }
+        
+        let vendor = await Vendor.findOne({ type });
+        
+        if (!vendor) {
+            const newVendor = new Vendor({ type: vendorType, isAvailable: false });
+            await newVendor.save();
+            vendor = newVendor;
+        }
+
+        if (!vendor.isAvailable) {
+            return res.status(200).send({ message: 'Vendor not available', isAvailable: false });
+        }
+
         const products = await Product.find({ type }).sort({ category: 1 });
-        console.log(products);
+        
         res.send(products);
     } catch (err) {
         console.error(err);

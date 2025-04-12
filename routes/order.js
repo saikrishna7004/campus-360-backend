@@ -1,5 +1,7 @@
 const express = require('express');
 const Order = require('../models/Order');
+const User = require('../models/User');
+const Vendor = require('../models/Vendor');
 const authMiddleware = require('../middleware/auth');
 const router = express.Router();
 
@@ -20,6 +22,14 @@ router.post('/', authMiddleware, async (req, res) => {
             return res.status(400).json({ 
                 success: false,
                 message: 'Missing required fields' 
+            });
+        }
+
+        const vendorStatus = await Vendor.findOne({ type: vendor });
+        if (!vendorStatus?.isAvailable) {
+            return res.status(400).json({
+                success: false,
+                message: 'Vendor is currently offline'
             });
         }
 

@@ -2,6 +2,7 @@ const express = require('express');
 const User = require('../models/User');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
+const Vendor = require('../models/Vendor');
 const authMiddleware = require('../middleware/auth');
 const router = express.Router();
 
@@ -13,12 +14,53 @@ router.post('/status', authMiddleware, async (req, res) => {
             return res.status(403).send({ message: 'Access denied' });
         }
 
-        await Product.updateMany(
-            { vendorType },
-            { $set: { isAvailable: isOnline } }
+        if (!['canteen', 'stationery'].includes(vendorType)) {
+            return res.status(400).send({ message: 'Invalid vendor type' });
+        }
+
+        const vendor = await Vendor.findOneAndUpdate(
+            { type: vendorType },
+            { isAvailable: isOnline },
+            { new: true, upsert: true }
         );
 
-        res.status(200).send({ message: 'Status updated successfully' });
+        if (!vendor) {
+            return res.status(404).send({ message: 'Vendor not found' });
+        }
+
+        res.status(200).send({
+            message: 'Status updated successfully',
+            isAvailable: isOnline
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Server error', error: err.message });
+    }
+});
+
+router.get('/status/:vendorType', async (req, res) => {
+    try {
+        const { vendorType } = req.params;
+        let vendor = await Vendor.findOne({ type: vendorType });
+        console.log(vendorType, vendor);
+
+        if (!['canteen', 'stationery'].includes(vendorType)) {
+            return res.status(400).send({ message: 'Invalid vendor type' });
+        }
+
+        if (!vendor) {
+            const newVendor = new Vendor({ type: vendorType, isAvailable: false });
+            await newVendor.save();
+            vendor = newVendor;
+        }
+
+        const isAvailable = vendor.isAvailable || false;
+
+        res.status(200).send({
+            message: 'Status fetched successfully',
+            isAvailable,
+            vendorType
+        });
     } catch (err) {
         console.error(err);
         res.status(500).send({ message: 'Server error', error: err.message });
@@ -253,11 +295,6 @@ router.get('/dashboard', async (req, res) => {
             ])
         ]);
 
-        // console.log('Data:', JSON.stringify(data, null, 2));
-        // console.log('Previous Period:', previousPeriod);
-        // console.log('medianOrderValue:', data[0]?.summary[0]?.medianOrderValue);
-        console.log('Sales Data:', data[0]?.sales);
-
         if (!data || !data[0] || !data[0].sales || data[0].sales.length === 0) {
             return res.status(404).send({ message: 'No sales data found for the selected period' });
         }
@@ -287,7 +324,7 @@ router.get('/dashboard', async (req, res) => {
                 labels.push(`Week ${_id}`);
                 values.push(totalSales);
             });
-        }        
+        }
 
         const statusCounts = currentData.statusDistribution.reduce((acc, { _id, count }) => {
             acc[_id] = count;
@@ -296,8 +333,6 @@ router.get('/dashboard', async (req, res) => {
 
         const previousSales = previousPeriod[0]?.totalSales || 0;
         const growth = previousSales ? ((currentData.summary[0]?.totalSales - previousSales) / previousSales) * 100 : 0;
-
-        // console.log('Top Products:', currentData.topProducts);
 
         res.json({
             totalSales: currentData.summary[0]?.totalSales || 0,
