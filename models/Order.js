@@ -1,21 +1,37 @@
 const mongoose = require('mongoose');
 
 const orderItemSchema = new mongoose.Schema({
-    productId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Product'
+    productId: { 
+        type: String, 
+        required: true 
     },
-    name: {
-        type: String,
-        required: true
+    name: { 
+        type: String, 
+        required: true 
     },
-    quantity: {
-        type: Number,
-        required: true
+    quantity: { 
+        type: Number, 
+        required: true 
     },
-    price: {
-        type: Number,
-        required: true
+    price: { 
+        type: Number, 
+        required: true 
+    },
+    isPrintItem: { 
+        type: Boolean, 
+        default: false 
+    },
+    documentDetails: {
+        url: String,
+        name: String,
+        printingOptions: {
+            numberOfCopies: Number,
+            colorType: { type: String, enum: ['bw', 'color'] },
+            printSides: { type: String, enum: ['single', 'double'] },
+            pageSize: String,
+            numberOfPages: Number,
+            additionalInfo: String
+        }
     }
 });
 

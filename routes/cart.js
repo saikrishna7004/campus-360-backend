@@ -47,14 +47,20 @@ router.get('/latest', authMiddleware, async (req, res) => {
     const userId = req.user.id;
 
     try {
-        const cart = await Cart.findOne({ user: userId }).populate('items.item');
+        const cart = await Cart.findOne({ user: userId });
         if (!cart) {
-            return res.status(200).send({ message: 'No cart found', cart: { items: [] } });
+            return res.status(200).json({ 
+                cart: { items: [] },
+                documents: []
+            });
         }
-        res.status(200).send({ message: 'Cart fetched successfully', cart });
+        res.status(200).json({
+            cart: { items: cart.items },
+            documents: cart.documents || []
+        });
     } catch (err) {
         console.error('Error fetching latest cart:', err);
-        res.status(500).send({ message: 'Server error' });
+        res.status(500).json({ message: 'Server error' });
     }
 });
 
@@ -71,26 +77,36 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 });
 
 router.post('/sync', authMiddleware, async (req, res) => {
-    const { carts } = req.body;
+    const { carts, documents } = req.body;
     const userId = req.user.id;
 
     try {
-        let cart = await Cart.findOne({ user: userId });
-        if (!cart) {
-            cart = new Cart({ user: userId, items: [] });
-        }
+        const items = carts.flatMap(cart => 
+            cart.items.map(item => ({
+                _id: item._id,
+                name: item.name,
+                price: item.price,
+                quantity: item.quantity,
+                vendor: cart.vendor,
+                imageUrl: item.imageUrl,
+                isPrintItem: item.isPrintItem,
+                printingOptions: item.printingOptions
+            }))
+        );
 
-        cart.items = carts.flatMap(cart => cart.items.map(item => ({
-            item: item._id,
-            quantity: item.quantity,
-            vendor: cart.vendor,
-        })));
+        await Cart.findOneAndUpdate(
+            { user: userId },
+            { 
+                items,
+                documents: documents || []
+            },
+            { upsert: true, new: true }
+        );
 
-        await cart.save();
-        res.status(200).send({ message: 'Cart synced successfully', cart });
+        res.status(200).json({ success: true });
     } catch (err) {
-        // console.error('Error syncing cart:', err);
-        res.status(500).send({ message: 'Server error' });
+        console.error('Error syncing cart:', err);
+        res.status(500).json({ message: 'Server error' });
     }
 });
 
