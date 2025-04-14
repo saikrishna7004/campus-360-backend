@@ -67,20 +67,18 @@ router.get('/status/:vendorType', async (req, res) => {
     }
 });
 
-// router.get('/dashboard', authMiddleware, async (req, res) => {
-router.get('/dashboard', async (req, res) => {
+router.get('/dashboard', authMiddleware, async (req, res) => {
+    // router.get('/dashboard', async (req, res) => {
     try {
-        // if (req.user.role !== 'vendor' && req.user.role !== 'admin') {
-        //     return res.status(403).send({ message: 'Access denied' });
-        // }
+        if (req.user.role !== 'vendor' && req.user.role !== 'admin') {
+            return res.status(403).send({ message: 'Access denied' });
+        }
 
         const { period = 'daily', timeRef } = req.query;
-        // const { role, id } = req.user;
-        // const isVendor = role === 'vendor';
-        // const user = await User.findById(id);
-        // const vendorType = isVendor ? user.vendorType : null;
-        const isVendor = false;
-        const vendorType = null;
+        const { role, id } = req.user;
+        const isVendor = role === 'vendor';
+        const user = await User.findById(id);
+        const vendorType = isVendor ? user.vendorType : null;
 
         const now = new Date(timeRef || new Date());
         let startDate = new Date(now);
@@ -133,30 +131,92 @@ router.get('/dashboard', async (req, res) => {
                                                 {
                                                     case: { $eq: [period, 'daily'] },
                                                     then: {
-                                                        $dateToString: {
-                                                            format: "%Y-%m-%d %H",
-                                                            date: {
-                                                                $subtract: [
-                                                                    { $toDate: "$createdAt" },
-                                                                    { $mod: [{ $toLong: "$createdAt" }, 4 * 60 * 60 * 1000] }
-                                                                ]
-                                                            },
-                                                            timezone: "UTC"
+                                                        sortKey: {
+                                                            $dateFromParts: {
+                                                                year: { $year: "$createdAt" },
+                                                                month: { $month: "$createdAt" },
+                                                                day: { $dayOfMonth: "$createdAt" },
+                                                                hour: {
+                                                                    $multiply: [
+                                                                        { $floor: { $divide: [{ $hour: "$createdAt" }, 3] } },
+                                                                        3
+                                                                    ]
+                                                                }
+                                                            }
+                                                        },
+                                                        display: {
+                                                            $let: {
+                                                                vars: {
+                                                                    hour: {
+                                                                        $multiply: [
+                                                                            { $floor: { $divide: [{ $hour: "$createdAt" }, 3] } },
+                                                                            3
+                                                                        ]
+                                                                    }
+                                                                },
+                                                                in: {
+                                                                    $concat: [
+                                                                        {
+                                                                            $cond: {
+                                                                                if: { $lt: ["$$hour", 12] },
+                                                                                then: { $toString: "$$hour" },
+                                                                                else: {
+                                                                                    $cond: {
+                                                                                        if: { $eq: ["$$hour", 12] },
+                                                                                        then: "12",
+                                                                                        else: { $toString: { $subtract: ["$$hour", 12] } }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        ":00 ",
+                                                                        {
+                                                                            $cond: {
+                                                                                if: { $lt: ["$$hour", 12] },
+                                                                                then: "AM",
+                                                                                else: "PM"
+                                                                            }
+                                                                        }
+                                                                    ]
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 },
                                                 {
                                                     case: { $eq: [period, 'weekly'] },
                                                     then: {
-                                                        $let: {
-                                                            vars: {
-                                                                dayOfWeek: { $dayOfWeek: "$createdAt" }
-                                                            },
-                                                            in: {
-                                                                $arrayElemAt: [
-                                                                    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-                                                                    { $subtract: ["$$dayOfWeek", 1] }
-                                                                ]
+                                                        sortKey: {
+                                                            $dateFromParts: {
+                                                                year: { $year: "$createdAt" },
+                                                                month: { $month: "$createdAt" },
+                                                                day: { $dayOfMonth: "$createdAt" }
+                                                            }
+                                                        },
+                                                        display: {
+                                                            $let: {
+                                                                vars: {
+                                                                    dayName: {
+                                                                        $switch: {
+                                                                            branches: [
+                                                                                { case: { $eq: [{ $dayOfWeek: "$createdAt" }, 1] }, then: "Sun" },
+                                                                                { case: { $eq: [{ $dayOfWeek: "$createdAt" }, 2] }, then: "Mon" },
+                                                                                { case: { $eq: [{ $dayOfWeek: "$createdAt" }, 3] }, then: "Tue" },
+                                                                                { case: { $eq: [{ $dayOfWeek: "$createdAt" }, 4] }, then: "Wed" },
+                                                                                { case: { $eq: [{ $dayOfWeek: "$createdAt" }, 5] }, then: "Thu" },
+                                                                                { case: { $eq: [{ $dayOfWeek: "$createdAt" }, 6] }, then: "Fri" },
+                                                                                { case: { $eq: [{ $dayOfWeek: "$createdAt" }, 7] }, then: "Sat" }
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                },
+                                                                in: {
+                                                                    $concat: [
+                                                                        "$$dayName",
+                                                                        " ",
+                                                                        { $toString: { $dayOfMonth: "$createdAt" } }
+                                                                    ]
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -164,21 +224,51 @@ router.get('/dashboard', async (req, res) => {
                                                 {
                                                     case: { $eq: [period, 'monthly'] },
                                                     then: {
-                                                        $concat: [
-                                                            { $substr: [{ $toString: { $isoWeek: "$createdAt" } }, 0, 1] },
-                                                            " Week"
-                                                        ]
+                                                        sortKey: {
+                                                            $dateFromParts: {
+                                                                year: { $year: "$createdAt" },
+                                                                month: { $month: "$createdAt" },
+                                                                day: {
+                                                                    $subtract: [
+                                                                        { $dayOfMonth: "$createdAt" },
+                                                                        { $mod: [{ $subtract: [{ $dayOfMonth: "$createdAt" }, 1] }, 7] }
+                                                                    ]
+                                                                }
+                                                            }
+                                                        },
+                                                        display: {
+                                                            $toString: {
+                                                                $ceil: {
+                                                                    $divide: [
+                                                                        { $subtract: [{ $dayOfMonth: "$createdAt" }, 1] },
+                                                                        7
+                                                                    ]
+                                                                }
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             ],
-                                            default: { $dayOfMonth: "$createdAt" }
+                                            default: {
+                                                sortKey: "$createdAt",
+                                                display: "Other"
+                                            }
                                         }
                                     },
-                                    totalSales: { $sum: "$totalAmount" },
-                                    orderCount: { $sum: 1 }
+                                    totalSales: { $sum: "$totalAmount" }
                                 }
                             },
-                            { $sort: { "_id": 1 } }
+                            {
+                                $sort: {
+                                    "_id.sortKey": 1
+                                }
+                            },
+                            {
+                                $project: {
+                                    _id: "$_id.display",
+                                    totalSales: 1
+                                }
+                            }
                         ],
                         summary: [
                             {
@@ -295,6 +385,8 @@ router.get('/dashboard', async (req, res) => {
             ])
         ]);
 
+        console.log('Data:', JSON.stringify(data, null, 2));
+
         if (!data || !data[0] || !data[0].sales || data[0].sales.length === 0) {
             return res.status(404).send({ message: 'No sales data found for the selected period' });
         }
@@ -311,7 +403,7 @@ router.get('/dashboard', async (req, res) => {
 
         if (period === 'daily') {
             salesData.forEach(({ _id, totalSales }) => {
-                labels.push(`${_id}:00`);
+                labels.push(_id);
                 values.push(totalSales);
             });
         } else if (period === 'weekly') {
