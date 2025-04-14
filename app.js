@@ -12,6 +12,7 @@ const bookRoutes = require('./routes/book');
 const orderRoutes = require('./routes/order');
 const vendorRoutes = require('./routes/vendor');
 const officeRoutes = require('./routes/office');
+const newsRoutes = require('./routes/news');
 
 const app = express();
 app.use(cors());
@@ -29,6 +30,7 @@ app.use('/cart', cartRoutes);
 app.use('/orders', orderRoutes);
 app.use('/vendor', vendorRoutes);
 app.use('/office', officeRoutes);
+app.use('/news', newsRoutes);
 
 app.post('/verify_token', (req, res) => {
     const { token } = req.body;
