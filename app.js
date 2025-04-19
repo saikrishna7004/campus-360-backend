@@ -34,22 +34,37 @@ app.use('/news', newsRoutes);
 
 app.post('/verify_token', (req, res) => {
     const { token } = req.body;
+    if (!token) return res.status(401).send('No token provided');
     
     try {
-        const user = jwt.verify(token, process.env.JWT_SECRET);
-        
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const newToken = jwt.sign(
-            { id: user._id || user.id, role: user.role, name: user.name }, 
-            process.env.JWT_SECRET, 
-            { expiresIn: '10d' }
+            { id: decoded.id, role: decoded.role, name: decoded.name },
+            process.env.JWT_SECRET,
+            { expiresIn: '1d' }
         );
-        
-        res.send({ user, newToken });
+        res.send({ user: decoded, newToken });
     } catch (err) {
-        console.log(err);
-        res.status(400).send({ message: 'Invalid token' });
+        res.status(401).send(err.name === 'TokenExpiredError' ? 'Session expired' : 'Invalid token');
     }
 });
+
+const tokenExpirationMiddleware = (req, res, next) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return next();
+
+    try {
+        jwt.verify(token, process.env.JWT_SECRET);
+        next();
+    } catch (err) {
+        if (err.name === 'TokenExpiredError') {
+            return res.status(401).send('Token expired');
+        }
+        next();
+    }
+};
+
+app.use(tokenExpirationMiddleware);
 
 app.get('/', (req, res) => {
     res.send('Hello World');
